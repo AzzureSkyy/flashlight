@@ -1,3 +1,7 @@
+// Flashlight for Garmin Fenix 8 Solar 51mm
+// Copyright (c) 2026 AzzureSkyy. All rights reserved.
+// Author: AzzureSkyy - https://github.com/AzzureSkyy/flashlight
+
 import Toybox.Application;
 import Toybox.Attention;
 import Toybox.Graphics;
@@ -9,6 +13,8 @@ import Toybox.WatchUi;
 
 // Screen-based flashlight. Connect IQ does not expose the Fenix 8 LED,
 // so the display is lit at full backlight in white or red.
+const AUTHOR = "AzzureSkyy";
+
 class FlashlightApp extends Application.AppBase {
 
 	function initialize() {
@@ -123,6 +129,8 @@ class FlashlightView extends WatchUi.View {
 			dc.drawText(w / 2, h / 2 + 35, Graphics.FONT_XTINY, "Swipe up/down: brightness",
 				Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
 			dc.drawText(w / 2, h / 2 + 60, Graphics.FONT_XTINY, "Double tap / hold: dial",
+				Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
+			dc.drawText(w / 2, h - 30, Graphics.FONT_XTINY, "by " + AUTHOR,
 				Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
 		}
 	}
@@ -274,6 +282,9 @@ class FlashlightDialView extends WatchUi.View {
 
 		dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
 		dc.drawText(cx, cy, Graphics.FONT_TINY, "DONE",
+			Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
+		dc.setColor(Graphics.COLOR_LT_GRAY, Graphics.COLOR_TRANSPARENT);
+		dc.drawText(cx, cy + 28, Graphics.FONT_XTINY, AUTHOR,
 			Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
 	}
 }

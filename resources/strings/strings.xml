@@ -1,5 +1,7 @@
+<!-- Flashlight - Copyright (c) 2026 AzzureSkyy -->
 <resources>
 	<strings>
 		<string id="AppName">Flashlight</string>
+		<string id="Author">AzzureSkyy</string>
 	</strings>
 </resources>
