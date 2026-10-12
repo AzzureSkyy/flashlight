@@ -31,7 +31,8 @@ class FlashlightApp extends Application.AppBase {
 	function getInitialView() {
 		var view = new FlashlightView();
 		_view = view;
-		return [ view, new FlashlightDelegate(view) ];
+		var dial = new FlashlightDialView(view);
+		return [ dial, new FlashlightDialDelegate(dial, view) ];
 	}
 
 	function onStop(state as Dictionary?) as Void {
@@ -53,7 +54,7 @@ class FlashlightView extends WatchUi.View {
 	var showHint as Boolean = true;
 	hidden var _keepAlive as Timer.Timer?;
 	hidden var _hintTimer as Timer.Timer?;
-	hidden var _ledRed as Boolean? = null;
+	hidden var _ledState as String? = null;
 
 	function initialize() {
 		View.initialize();
@@ -100,14 +101,15 @@ class FlashlightView extends WatchUi.View {
 		var mode = !isOn ? Attention.FLASHLIGHT_MODE_OFF
 			: (strobe ? Attention.FLASHLIGHT_MODE_STROBE : Attention.FLASHLIGHT_MODE_ON);
 		try {
-			if (_ledRed != isRed && mode != Attention.FLASHLIGHT_MODE_OFF) {
+			var state = isRed + "|" + level + "|" + strobe;
+			if (_ledState != null && !state.equals(_ledState) && mode != Attention.FLASHLIGHT_MODE_OFF) {
 				Attention.setFlashlightMode(Attention.FLASHLIGHT_MODE_OFF, null);
 			}
+			_ledState = state;
 			var opts = isRed
 				? { :color => Attention.FLASHLIGHT_COLOR_RED }
 				: { :color => Attention.FLASHLIGHT_COLOR_WHITE, :brightness => bright[level] };
 			var res = Attention.setFlashlightMode(mode, opts);
-			_ledRed = isRed;
 			ledError = (res != Attention.FLASHLIGHT_RESULT_SUCCESS);
 		} catch (e) {
 			ledError = true;
@@ -224,79 +226,6 @@ class FlashlightView extends WatchUi.View {
 	}
 }
 
-class FlashlightDelegate extends WatchUi.BehaviorDelegate {
-
-	hidden var _view as FlashlightView;
-	hidden var _tapTimer as Timer.Timer?;
-
-	function initialize(view as FlashlightView) {
-		BehaviorDelegate.initialize();
-		_view = view;
-	}
-
-	// A single tap toggles colour; a second tap within 350 ms opens the dial instead.
-	function onTap(evt as WatchUi.ClickEvent) as Boolean {
-		if (_tapTimer != null) {
-			_tapTimer.stop();
-			_tapTimer = null;
-			openDial();
-		} else {
-			_tapTimer = new Timer.Timer();
-			_tapTimer.start(method(:singleTap), 350, false);
-		}
-		return true;
-	}
-
-	function singleTap() as Void {
-		_tapTimer = null;
-		_view.toggleColor();
-	}
-
-	function onHold(evt as WatchUi.ClickEvent) as Boolean {
-		openDial();
-		return true;
-	}
-
-	function onMenu() as Boolean {
-		openDial();
-		return true;
-	}
-
-	function openDial() as Void {
-		var dial = new FlashlightDialView(_view);
-		WatchUi.pushView(dial, new FlashlightDialDelegate(dial), WatchUi.SLIDE_IMMEDIATE);
-	}
-
-	function onSwipe(evt as WatchUi.SwipeEvent) as Boolean {
-		var d = evt.getDirection();
-		if (d == WatchUi.SWIPE_UP) { _view.changeLevel(1); return true; }
-		if (d == WatchUi.SWIPE_DOWN) { _view.changeLevel(-1); return true; }
-		return false;
-	}
-
-	// Buttons: START toggles the light on/off, UP/DOWN change brightness.
-	function onSelect() as Boolean {
-		_view.toggleOn();
-		return true;
-	}
-
-	// Turn the LED off when leaving the app.
-	function onBack() as Boolean {
-		_view.ledOff();
-		return false;
-	}
-
-	function onPreviousPage() as Boolean {
-		_view.changeLevel(1);
-		return true;
-	}
-
-	function onNextPage() as Boolean {
-		_view.changeLevel(-1);
-		return true;
-	}
-}
-
 // Circular dial: Low/Med/High, Strobe, Red and White around the ring.
 class FlashlightDialView extends WatchUi.View {
 
@@ -312,7 +241,16 @@ class FlashlightDialView extends WatchUi.View {
 	}
 
 	function onShow() as Void {
+		_light.onShow();
 		WatchUi.requestUpdate();
+	}
+
+	function onHide() as Void {
+		_light.onHide();
+	}
+
+	function toggleOn() as Void {
+		_light.toggleOn();
 	}
 
 	function count() as Number {
@@ -382,7 +320,7 @@ class FlashlightDialView extends WatchUi.View {
 		}
 
 		dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-		dc.drawText(cx, cy, Graphics.FONT_TINY, "DONE",
+		dc.drawText(cx, cy, Graphics.FONT_TINY, _light.statusText(),
 			Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
 		dc.setColor(Graphics.COLOR_LT_GRAY, Graphics.COLOR_TRANSPARENT);
 		dc.drawText(cx, cy + 28, Graphics.FONT_XTINY, AUTHOR,
@@ -393,10 +331,12 @@ class FlashlightDialView extends WatchUi.View {
 class FlashlightDialDelegate extends WatchUi.BehaviorDelegate {
 
 	hidden var _dial as FlashlightDialView;
+	hidden var _light as FlashlightView;
 
-	function initialize(dial as FlashlightDialView) {
+	function initialize(dial as FlashlightDialView, light as FlashlightView) {
 		BehaviorDelegate.initialize();
 		_dial = dial;
+		_light = light;
 	}
 
 	function onTap(evt as WatchUi.ClickEvent) as Boolean {
@@ -404,7 +344,8 @@ class FlashlightDialDelegate extends WatchUi.BehaviorDelegate {
 		var s = System.getDeviceSettings();
 		var i = _dial.hitTest(xy[0], xy[1], s.screenWidth, s.screenHeight);
 		if (i < 0) {
-			WatchUi.popView(WatchUi.SLIDE_IMMEDIATE);
+			_dial.toggleOn();
+			WatchUi.requestUpdate();
 		} else {
 			_dial.selected = i;
 			_dial.apply(i);
@@ -433,7 +374,15 @@ class FlashlightDialDelegate extends WatchUi.BehaviorDelegate {
 	}
 
 	function onMenu() as Boolean {
-		WatchUi.popView(WatchUi.SLIDE_IMMEDIATE);
 		return true;
+	}
+
+	function onSwipe(evt as WatchUi.SwipeEvent) as Boolean {
+		return true;
+	}
+
+	function onBack() as Boolean {
+		_light.ledOff();
+		return false;
 	}
 }
