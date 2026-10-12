@@ -75,14 +75,17 @@ class FlashlightBarsView extends WatchUi.View {
 	function hitTest(x as Number, y as Number, w as Number, h as Number) as Number {
 		var dx = x - w / 2;
 		var dy = h / 2 - y;
-		if (dx * dx + dy * dy < (w / 5) * (w / 5)) { return -1; }
+		// Only the ring the bars are drawn on counts (with a little finger tolerance).
+		var pen = w / 9;
+		var inner = w / 2 - pen - 14;
+		if (dx * dx + dy * dy < inner * inner) { return -1; }
 		var deg = Math.toDegrees(Math.atan2(dy, dx));
 		if (deg < 0) { deg += 360.0; }
-		if (deg < ARC_START - 15 || deg > ARC_START + ARC_STEP * LABELS.size() + 15) { return -1; }
-		var i = ((deg - ARC_START) / ARC_STEP).toNumber();
-		if (deg < ARC_START) { i = 0; }
-		if (i >= LABELS.size()) { i = LABELS.size() - 1; }
-		return i;
+		for (var i = 0; i < LABELS.size(); i++) {
+			var c = centerAngle(i);
+			if (deg >= c - HALF_SPAN - 3 && deg <= c + HALF_SPAN + 3) { return i; }
+		}
+		return -1;
 	}
 
 	function onUpdate(dc as Graphics.Dc) as Void {
@@ -106,9 +109,20 @@ class FlashlightBarsView extends WatchUi.View {
 			}
 			var fill = red ? (on ? Graphics.COLOR_RED : Graphics.COLOR_DK_RED)
 				: (on ? Graphics.COLOR_WHITE : Graphics.COLOR_DK_GRAY);
+			// Dark rim, body, then a light outer bevel and dark inner shadow for a raised look.
+			dc.setPenWidth(pen + 4);
+			dc.setColor(0x202020, Graphics.COLOR_TRANSPARENT);
+			dc.drawArc(cx, cy, r, Graphics.ARC_COUNTER_CLOCKWISE, c - HALF_SPAN - 1, c + HALF_SPAN + 1);
 			dc.setPenWidth(pen);
 			dc.setColor(fill, Graphics.COLOR_TRANSPARENT);
 			dc.drawArc(cx, cy, r, Graphics.ARC_COUNTER_CLOCKWISE, c - HALF_SPAN, c + HALF_SPAN);
+			var hi = red ? (on ? 0xFF8080 : 0xC03030) : (on ? 0xFFFFFF : 0xA0A0A0);
+			var lo = red ? (on ? 0x800000 : 0x400000) : (on ? 0x909090 : 0x303030);
+			dc.setPenWidth(3);
+			dc.setColor(hi, Graphics.COLOR_TRANSPARENT);
+			dc.drawArc(cx, cy, r + pen / 2 - 2, Graphics.ARC_COUNTER_CLOCKWISE, c - HALF_SPAN + 1, c + HALF_SPAN - 1);
+			dc.setColor(lo, Graphics.COLOR_TRANSPARENT);
+			dc.drawArc(cx, cy, r - pen / 2 + 2, Graphics.ARC_COUNTER_CLOCKWISE, c - HALF_SPAN + 1, c + HALF_SPAN - 1);
 			var a = Math.toRadians(c);
 			var lr = r - pen - 18;
 			dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
@@ -166,7 +180,7 @@ class FlashlightBarsDelegate extends WatchUi.BehaviorDelegate {
 		} else if (t == WatchUi.DRAG_TYPE_STOP) {
 			if (!_moved && _startBar >= 0 && _startBar != _bars.RED_BAR) { _bars.apply(_startBar); }
 			_startBar = -1;
-		} else if (_startBar != _bars.RED_BAR && i >= 0 && i != _startBar) {
+		} else if (_startBar >= 0 && _startBar != _bars.RED_BAR && i >= 0 && i != _bars.RED_BAR && i != _startBar) {
 			_moved = true;
 			_bars.slideTo(i);
 		}
