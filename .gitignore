@@ -1,2 +1,4 @@
 developer_key.der
 *.pem
+build/*
+!build/Flashlight.prg
