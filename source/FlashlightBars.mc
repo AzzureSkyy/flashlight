@@ -62,21 +62,27 @@ class FlashlightBarsView extends WatchUi.View {
 		WatchUi.requestUpdate();
 	}
 
-	// Arc i centre angle (degrees, 0 = 3 o'clock, counter-clockwise): HIGH top-left, MED top-right, LOW bottom-right, RED bottom-left.
-	const CENTERS = [135, 45, -45, 225];
-	const HALF_SPAN = 43;
+	// Bars sit on the left half of the screen, top to bottom: HIGH, MED, LOW, RED.
+	// Angles are degrees, 0 = 3 o'clock, counter-clockwise; the left side runs from 100 (top) to 260 (bottom).
+	const ARC_START = 100;
+	const ARC_STEP = 40;
+	const HALF_SPAN = 18;
+
+	function centerAngle(i as Number) as Number {
+		return ARC_START + ARC_STEP / 2 + i * ARC_STEP;
+	}
 
 	function hitTest(x as Number, y as Number, w as Number, h as Number) as Number {
 		var dx = x - w / 2;
 		var dy = h / 2 - y;
-		if (dx * dx + dy * dy < (w / 6) * (w / 6)) { return -1; }
+		if (dx * dx + dy * dy < (w / 5) * (w / 5)) { return -1; }
 		var deg = Math.toDegrees(Math.atan2(dy, dx));
 		if (deg < 0) { deg += 360.0; }
-		// Quadrants: 0-90 MED, 90-180 HIGH, 180-270 RED, 270-360 LOW.
-		if (deg < 90) { return 1; }
-		if (deg < 180) { return 0; }
-		if (deg < 270) { return 3; }
-		return 2;
+		if (deg < ARC_START - 15 || deg > ARC_START + ARC_STEP * LABELS.size() + 15) { return -1; }
+		var i = ((deg - ARC_START) / ARC_STEP).toNumber();
+		if (deg < ARC_START) { i = 0; }
+		if (i >= LABELS.size()) { i = LABELS.size() - 1; }
+		return i;
 	}
 
 	function onUpdate(dc as Graphics.Dc) as Void {
@@ -92,7 +98,7 @@ class FlashlightBarsView extends WatchUi.View {
 		for (var i = 0; i < LABELS.size(); i++) {
 			var red = (i == RED_BAR);
 			var on = isActive(i);
-			var c = CENTERS[i];
+			var c = centerAngle(i);
 			if (i == selected) {
 				dc.setPenWidth(pen + 8);
 				dc.setColor(Graphics.COLOR_YELLOW, Graphics.COLOR_TRANSPARENT);
@@ -111,7 +117,7 @@ class FlashlightBarsView extends WatchUi.View {
 		}
 
 		dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-		dc.drawText(cx, cy, Graphics.FONT_SMALL, _light.statusText(),
+		dc.drawText(cx + w / 6, cy, Graphics.FONT_SMALL, _light.statusText(),
 			Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
 
 		if (_light.ledError) {
@@ -126,6 +132,9 @@ class FlashlightBarsDelegate extends WatchUi.BehaviorDelegate {
 
 	hidden var _bars as FlashlightBarsView;
 	hidden var _light as FlashlightView;
+	hidden var _startBar as Number = -1;
+	hidden var _moved as Boolean = false;
+	hidden var _dragSeen as Boolean = false;
 
 	function initialize(bars as FlashlightBarsView, light as FlashlightView) {
 		BehaviorDelegate.initialize();
@@ -134,6 +143,7 @@ class FlashlightBarsDelegate extends WatchUi.BehaviorDelegate {
 	}
 
 	function onTap(evt as WatchUi.ClickEvent) as Boolean {
+		if (_dragSeen) { _dragSeen = false; return true; }
 		var xy = evt.getCoordinates();
 		var s = System.getDeviceSettings();
 		var i = _bars.hitTest(xy[0], xy[1], s.screenWidth, s.screenHeight);
@@ -141,12 +151,25 @@ class FlashlightBarsDelegate extends WatchUi.BehaviorDelegate {
 		return true;
 	}
 
-	// Sliding a finger across the white bars switches between LOW, MED and HIGH.
+	// Touching RED turns it on immediately; sliding over the white bars switches LOW/MED/HIGH;
+	// touching and releasing a white bar without sliding acts like a tap.
 	function onDrag(evt as WatchUi.DragEvent) as Boolean {
-		if (evt.getType() == WatchUi.DRAG_TYPE_STOP) { return true; }
 		var xy = evt.getCoordinates();
 		var s = System.getDeviceSettings();
-		_bars.slideTo(_bars.hitTest(xy[0], xy[1], s.screenWidth, s.screenHeight));
+		var i = _bars.hitTest(xy[0], xy[1], s.screenWidth, s.screenHeight);
+		var t = evt.getType();
+		if (t == WatchUi.DRAG_TYPE_START) {
+			_dragSeen = true;
+			_startBar = i;
+			_moved = false;
+			if (i == _bars.RED_BAR) { _bars.apply(i); }
+		} else if (t == WatchUi.DRAG_TYPE_STOP) {
+			if (!_moved && _startBar >= 0 && _startBar != _bars.RED_BAR) { _bars.apply(_startBar); }
+			_startBar = -1;
+		} else if (_startBar != _bars.RED_BAR && i >= 0 && i != _startBar) {
+			_moved = true;
+			_bars.slideTo(i);
+		}
 		return true;
 	}
 

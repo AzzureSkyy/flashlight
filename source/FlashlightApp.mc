@@ -108,7 +108,7 @@ class FlashlightView extends WatchUi.View {
 				Attention.setFlashlightMode(Attention.FLASHLIGHT_MODE_OFF, null);
 				if (_ledTimer != null) { _ledTimer.stop(); }
 				_ledTimer = new Timer.Timer();
-				_ledTimer.start(method(:sendLed), 400, false);
+				_ledTimer.start(method(:sendLed), 150, false);
 				return;
 			}
 			sendLed();
