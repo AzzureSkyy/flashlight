@@ -53,6 +53,7 @@ class FlashlightView extends WatchUi.View {
 	var showHint as Boolean = true;
 	hidden var _keepAlive as Timer.Timer?;
 	hidden var _hintTimer as Timer.Timer?;
+	hidden var _ledRed as Boolean? = null;
 
 	function initialize() {
 		View.initialize();
@@ -60,9 +61,7 @@ class FlashlightView extends WatchUi.View {
 		redOk = hasLed && (Attention has :hasFlashlightColor)
 			&& Attention.hasFlashlightColor(Attention.FLASHLIGHT_COLOR_RED);
 		var store = Application.Storage;
-		var r = store.getValue("red");
 		var l = store.getValue("level");
-		if (r instanceof Boolean) { isRed = r && (redOk || !hasLed); }
 		if (l instanceof Number && l >= 0 && l < LEVEL_NAMES.size()) { level = l; }
 	}
 
@@ -81,7 +80,6 @@ class FlashlightView extends WatchUi.View {
 	function onHide() as Void {
 		if (_keepAlive != null) { _keepAlive.stop(); _keepAlive = null; }
 		if (_hintTimer != null) { _hintTimer.stop(); _hintTimer = null; }
-		Application.Storage.setValue("red", isRed);
 		Application.Storage.setValue("level", level);
 	}
 
@@ -102,10 +100,14 @@ class FlashlightView extends WatchUi.View {
 		var mode = !isOn ? Attention.FLASHLIGHT_MODE_OFF
 			: (strobe ? Attention.FLASHLIGHT_MODE_STROBE : Attention.FLASHLIGHT_MODE_ON);
 		try {
-			var res = Attention.setFlashlightMode(mode, {
-				:color => isRed ? Attention.FLASHLIGHT_COLOR_RED : Attention.FLASHLIGHT_COLOR_WHITE,
-				:brightness => bright[level]
-			});
+			if (_ledRed != isRed && mode != Attention.FLASHLIGHT_MODE_OFF) {
+				Attention.setFlashlightMode(Attention.FLASHLIGHT_MODE_OFF, null);
+			}
+			var opts = isRed
+				? { :color => Attention.FLASHLIGHT_COLOR_RED }
+				: { :color => Attention.FLASHLIGHT_COLOR_WHITE, :brightness => bright[level] };
+			var res = Attention.setFlashlightMode(mode, opts);
+			_ledRed = isRed;
 			ledError = (res != Attention.FLASHLIGHT_RESULT_SUCCESS);
 		} catch (e) {
 			ledError = true;
@@ -154,6 +156,7 @@ class FlashlightView extends WatchUi.View {
 
 	function setLevel(n as Number) as Void {
 		level = n;
+		isRed = false;
 		isOn = true;
 		applyLed();
 		if (!hasLed) { backlightOn(); }
@@ -163,6 +166,7 @@ class FlashlightView extends WatchUi.View {
 	function setRed(red as Boolean) as Void {
 		if (red && hasLed && !redOk) { red = false; }
 		isRed = red;
+		isOn = true;
 		applyLed();
 		flashHint();
 	}
@@ -176,7 +180,7 @@ class FlashlightView extends WatchUi.View {
 
 	function statusText() as String {
 		if (!isOn) { return "OFF"; }
-		return (isRed ? "RED " : "WHITE ") + LEVEL_NAMES[level] + (strobe ? " STROBE" : "");
+		return (isRed ? "RED" : "WHITE " + LEVEL_NAMES[level]) + (strobe ? " STROBE" : "");
 	}
 
 	function onUpdate(dc as Graphics.Dc) as Void {
@@ -342,7 +346,7 @@ class FlashlightDialView extends WatchUi.View {
 	}
 
 	function isActive(i as Number) as Boolean {
-		if (i < 3) { return _light.level == i; }
+		if (i < 3) { return !_light.isRed && _light.level == i; }
 		if (i == 3) { return _light.strobe; }
 		return _light.isRed == (i == 4);
 	}
