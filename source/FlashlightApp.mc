@@ -11,8 +11,8 @@ import Toybox.System;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-// Screen-based flashlight. Connect IQ does not expose the Fenix 8 LED,
-// so the display is lit at full backlight in white or red.
+// Controls the watch's built-in LED via Attention.setFlashlightMode (API 3.4.3+).
+// Falls back to lighting the screen on devices without an LED.
 const AUTHOR = "AzzureSkyy";
 
 class FlashlightApp extends Application.AppBase {
@@ -21,37 +21,55 @@ class FlashlightApp extends Application.AppBase {
 		AppBase.initialize();
 	}
 
+	hidden var _view as FlashlightView?;
+
 	function getInitialView() {
 		var view = new FlashlightView();
+		_view = view;
 		return [ view, new FlashlightDelegate(view) ];
+	}
+
+	function onStop(state as Dictionary?) as Void {
+		if (_view != null) { _view.ledOff(); }
 	}
 }
 
 class FlashlightView extends WatchUi.View {
 
-	// Brightness steps (percent of full colour intensity).
-	const LEVELS = [25, 50, 75, 100];
+	const LEVEL_NAMES = ["LOW", "MED", "HIGH"];
 
 	var isRed as Boolean = false;
-	var level as Number = 3;
+	var level as Number = 2;
+	var isOn as Boolean = true;
+	var strobe as Boolean = false;
+	var hasLed as Boolean = false;
+	var redOk as Boolean = false;
+	var ledError as Boolean = false;
 	var showHint as Boolean = true;
 	hidden var _keepAlive as Timer.Timer?;
 	hidden var _hintTimer as Timer.Timer?;
 
 	function initialize() {
 		View.initialize();
+		hasLed = (Attention has :setFlashlightMode);
+		redOk = hasLed && (Attention has :hasFlashlightColor)
+			&& Attention.hasFlashlightColor(Attention.FLASHLIGHT_COLOR_RED);
 		var store = Application.Storage;
 		var r = store.getValue("red");
 		var l = store.getValue("level");
-		if (r instanceof Boolean) { isRed = r; }
-		if (l instanceof Number && l >= 0 && l < LEVELS.size()) { level = l; }
+		if (r instanceof Boolean) { isRed = r && (redOk || !hasLed); }
+		if (l instanceof Number && l >= 0 && l < LEVEL_NAMES.size()) { level = l; }
 	}
 
 	function onShow() as Void {
-		backlightOn();
-		// Re-assert the backlight so it doesn't time out while in use.
-		_keepAlive = new Timer.Timer();
-		_keepAlive.start(method(:backlightOn), 4000, true);
+		if (hasLed) {
+			applyLed();
+		} else {
+			backlightOn();
+			// Re-assert the backlight so it doesn't time out while in use.
+			_keepAlive = new Timer.Timer();
+			_keepAlive.start(method(:backlightOn), 4000, true);
+		}
 		flashHint();
 	}
 
@@ -60,6 +78,46 @@ class FlashlightView extends WatchUi.View {
 		if (_hintTimer != null) { _hintTimer.stop(); _hintTimer = null; }
 		Application.Storage.setValue("red", isRed);
 		Application.Storage.setValue("level", level);
+	}
+
+	function ledOff() as Void {
+		if (hasLed) {
+			try {
+				Attention.setFlashlightMode(Attention.FLASHLIGHT_MODE_OFF, null);
+			} catch (e) {
+			}
+		}
+	}
+
+	function applyLed() as Void {
+		if (!hasLed) { return; }
+		var bright = [Attention.FLASHLIGHT_BRIGHTNESS_LOW,
+			Attention.FLASHLIGHT_BRIGHTNESS_MEDIUM,
+			Attention.FLASHLIGHT_BRIGHTNESS_HIGH];
+		var mode = !isOn ? Attention.FLASHLIGHT_MODE_OFF
+			: (strobe ? Attention.FLASHLIGHT_MODE_STROBE : Attention.FLASHLIGHT_MODE_ON);
+		try {
+			var res = Attention.setFlashlightMode(mode, {
+				:color => isRed ? Attention.FLASHLIGHT_COLOR_RED : Attention.FLASHLIGHT_COLOR_WHITE,
+				:brightness => bright[level]
+			});
+			ledError = (res != Attention.FLASHLIGHT_RESULT_SUCCESS);
+		} catch (e) {
+			ledError = true;
+		}
+	}
+
+	function toggleOn() as Void {
+		isOn = !isOn;
+		applyLed();
+		flashHint();
+	}
+
+	function setStrobe(s as Boolean) as Void {
+		strobe = s;
+		isOn = true;
+		applyLed();
+		flashHint();
 	}
 
 	function backlightOn() as Void {
@@ -86,45 +144,66 @@ class FlashlightView extends WatchUi.View {
 	}
 
 	function toggleColor() as Void {
-		isRed = !isRed;
-		flashHint();
+		setRed(!isRed);
 	}
 
 	function setLevel(n as Number) as Void {
 		level = n;
-		backlightOn();
+		isOn = true;
+		applyLed();
+		if (!hasLed) { backlightOn(); }
 		flashHint();
 	}
 
 	function setRed(red as Boolean) as Void {
+		if (red && hasLed && !redOk) { red = false; }
 		isRed = red;
+		applyLed();
 		flashHint();
 	}
 
 	function changeLevel(delta as Number) as Void {
 		var n = level + delta;
 		if (n < 0) { n = 0; }
-		if (n >= LEVELS.size()) { n = LEVELS.size() - 1; }
-		level = n;
-		backlightOn();
-		flashHint();
+		if (n >= LEVEL_NAMES.size()) { n = LEVEL_NAMES.size() - 1; }
+		setLevel(n);
+	}
+
+	function statusText() as String {
+		if (!isOn) { return "OFF"; }
+		return (isRed ? "RED " : "WHITE ") + LEVEL_NAMES[level] + (strobe ? " STROBE" : "");
 	}
 
 	function onUpdate(dc as Graphics.Dc) as Void {
-		var v = (255 * LEVELS[level]) / 100;
-		var color = isRed ? (v << 16) : ((v << 16) | (v << 8) | v);
-		dc.setColor(color, color);
-		dc.clear();
+		var w = dc.getWidth();
+		var h = dc.getHeight();
+		var fg = Graphics.COLOR_WHITE;
+		if (hasLed) {
+			// LED does the lighting; keep the screen dark to save battery.
+			dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_BLACK);
+			dc.clear();
+			var ring = !isOn ? Graphics.COLOR_DK_GRAY : (isRed ? Graphics.COLOR_RED : Graphics.COLOR_YELLOW);
+			dc.setColor(ring, Graphics.COLOR_TRANSPARENT);
+			dc.setPenWidth(6);
+			dc.drawCircle(w / 2, h / 2, w / 2 - 8);
+		} else {
+			var v = isOn ? (255 * (level + 2)) / 4 : 0;
+			var color = isRed ? (v << 16) : ((v << 16) | (v << 8) | v);
+			dc.setColor(color, color);
+			dc.clear();
+			if (isOn && !isRed && level >= 1) { fg = Graphics.COLOR_BLACK; }
+		}
+
+		dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
+		dc.drawText(w / 2, h / 2 - 40, Graphics.FONT_MEDIUM, statusText(),
+			Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
+		if (ledError) {
+			dc.drawText(w / 2, h / 2 - 10, Graphics.FONT_XTINY, "LED unavailable",
+				Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
+		}
 
 		if (showHint) {
-			var w = dc.getWidth();
-			var h = dc.getHeight();
-			var fg = (!isRed && LEVELS[level] >= 50) ? Graphics.COLOR_BLACK : Graphics.COLOR_WHITE;
-			dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
-			dc.drawText(w / 2, h / 2 - 40, Graphics.FONT_MEDIUM,
-				(isRed ? "RED " : "WHITE ") + LEVELS[level] + "%",
-				Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
-			dc.drawText(w / 2, h / 2 + 10, Graphics.FONT_XTINY, "Tap: white / red",
+			dc.drawText(w / 2, h / 2 + 10, Graphics.FONT_XTINY, "Tap: white / red  START: on/off",
 				Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
 			dc.drawText(w / 2, h / 2 + 35, Graphics.FONT_XTINY, "Swipe up/down: brightness",
 				Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
@@ -186,10 +265,16 @@ class FlashlightDelegate extends WatchUi.BehaviorDelegate {
 		return false;
 	}
 
-	// Buttons work too: START toggles colour, UP/DOWN change brightness.
+	// Buttons: START toggles the light on/off, UP/DOWN change brightness.
 	function onSelect() as Boolean {
-		_view.toggleColor();
+		_view.toggleOn();
 		return true;
+	}
+
+	// Turn the LED off when leaving the app.
+	function onBack() as Boolean {
+		_view.ledOff();
+		return false;
 	}
 
 	function onPreviousPage() as Boolean {
@@ -203,10 +288,10 @@ class FlashlightDelegate extends WatchUi.BehaviorDelegate {
 	}
 }
 
-// Circular dial: 25/50/75/100% around the ring plus White and Red.
+// Circular dial: Low/Med/High, Strobe, Red and White around the ring.
 class FlashlightDialView extends WatchUi.View {
 
-	const LABELS = ["25", "50", "75", "100", "RED", "WHITE"];
+	const LABELS = ["LOW", "MED", "HIGH", "STRB", "RED", "WHITE"];
 
 	hidden var _light as FlashlightView;
 	var selected as Number = 0;
@@ -215,6 +300,10 @@ class FlashlightDialView extends WatchUi.View {
 		View.initialize();
 		_light = light;
 		selected = light.level;
+	}
+
+	function onShow() as Void {
+		WatchUi.requestUpdate();
 	}
 
 	function count() as Number {
@@ -238,15 +327,18 @@ class FlashlightDialView extends WatchUi.View {
 	}
 
 	function apply(i as Number) as Void {
-		if (i < 4) {
+		if (i < 3) {
 			_light.setLevel(i);
+		} else if (i == 3) {
+			_light.setStrobe(!_light.strobe);
 		} else {
 			_light.setRed(i == 4);
 		}
 	}
 
 	function isActive(i as Number) as Boolean {
-		if (i < 4) { return _light.level == i; }
+		if (i < 3) { return _light.level == i; }
+		if (i == 3) { return _light.strobe; }
 		return _light.isRed == (i == 4);
 	}
 
