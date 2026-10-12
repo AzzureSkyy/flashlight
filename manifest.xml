@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<iq:manifest xmlns:iq="http://www.garmin.com/xml/connectiq" version="3">
+	<iq:application entry="FlashlightApp" id="159dbda3-fe4f-4355-aded-16d54c4d01b1" launcherIcon="@Drawables.LauncherIcon" name="@Strings.AppName" type="watch-app" minApiLevel="3.1.0">
+		<iq:products>
+			<iq:product id="fenix8solar51mm"/>
+		</iq:products>
+		<iq:permissions/>
+		<iq:languages>
+			<iq:language>eng</iq:language>
+		</iq:languages>
+		<iq:barrels/>
+	</iq:application>
+</iq:manifest>
