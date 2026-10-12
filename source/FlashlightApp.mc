@@ -15,10 +15,15 @@ import Toybox.WatchUi;
 // Falls back to lighting the screen on devices without an LED.
 const AUTHOR = "AzzureSkyy";
 
+(:glance)
 class FlashlightApp extends Application.AppBase {
 
 	function initialize() {
 		AppBase.initialize();
+	}
+
+	function getGlanceView() {
+		return [ new FlashlightGlanceView() ];
 	}
 
 	hidden var _view as FlashlightView?;
